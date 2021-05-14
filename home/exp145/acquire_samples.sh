@@ -21,6 +21,7 @@ execute_and_log()
 }
 
 # perform 1 run
+execute_and_log "opkg status exp145"
 execute_and_log "opkg status sepp-api"
 execute_and_log "opkg status sepp-sdr"
 execute_and_log "sdr_receive_nsamples $CONFIG_FILE"
