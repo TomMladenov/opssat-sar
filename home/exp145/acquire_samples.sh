@@ -4,7 +4,6 @@ timestamp_trigger=$(date +"%Y%m%d_%H%M%S")
 
 LOGFILE=exp145_sdr_$timestamp_trigger.log
 CONFIG_FILE=config/sdr_rx_cfg_sar.ini
-ARTEFACT=exp145_artifacts_$timestamp_trigger.tar
 TOGROUND=toGround
 
 read_ini_file() {
@@ -31,15 +30,14 @@ sr=$(read_ini_file SEPP_SDR_RX sampling_rate_cfg $CONFIG_FILE)
 gain=$(read_ini_file SEPP_SDR_RX gain_dB $CONFIG_FILE)
 
 filename=sdr_iq_"$timestamp_trigger"_sr"$sr"_f"$freq"_g"$gain".cs16
-echo $filename
 
-# collect and cleanup
+# rename the file ito something that makes sense
 for f in *.iqdat; do
     mv -- "$f" $filename
 done
-tar -cvf $ARTEFACT *.iqdat *.log
-mv $ARTEFACT $TOGROUND
-rm *.log
-rm *.iqdat
+
+# dump results
+mv *.cs16 $TOGROUND
+mv *.log $TOGROUND
 
 exit 0
