@@ -5,7 +5,7 @@ REMOTE=opssat1.esoc.esa.int
 USER=exp145
 NAME=Mladenov
 
-version=$(git describe --tags)-$(git rev-parse --short HEAD)
+version=$(git describe --tags)
 
 if [[ $(git diff --stat) != '' ]]; then
   version="${version}-dirty"
