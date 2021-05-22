@@ -1,0 +1,37 @@
+{
+   "lpf" : {
+      "lpf_freq_offset" : 125000,
+      "lpf_cutoff" : 15000,
+      "lpf_transition" : 3200,
+      "lpf_attn" : 50,
+      "lpf_alpha" : 0.25
+   },
+   "agc" : {
+      "agc_enabled" : false,
+      "agc_attack_rate" : 0.1,
+      "agc_decay_rate" : 0.01,
+      "agc_max_gain" : 65536
+   },
+   "pll" : {
+      "pll_max_freq_dev" : 15000.0,
+      "pll_loop_bw" : 0.032
+   },
+   "rrc" : {
+      "rrc_enabled" : true,
+      "rrc_decimation" : 8,
+      "rrc_alpha" : 0.25,
+      "rrc_taps" : 50
+   }, 
+   "matched_filter" : {
+      "matched_filter_enabled" : false
+   },
+   "clock_recovery" : {
+      "clock_recovery_alpha" : 0.1,
+      "clock_recovery_mu" : 0.3,
+      "clock_recovery_gain_mu" : 0.2,
+      "clock_recovery_omega_relative_limit" : 0.001
+   },
+   "decoder" : {
+      "decoder_threshold" : 3
+   }
+}
