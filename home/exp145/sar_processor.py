@@ -100,8 +100,8 @@ def acquire_samples(config_file):
         else:
             logger.info("Captured iq-file [{}], acquisition took {} seconds".format(captured_files[0], delta))
             new_filename = '{}/sdr_iq_{}_{}_{}_{}_{}.cs16'.format(TMP_PATH, t2.strftime("%Y%m%d_%H%M%S"), CENTER_FREQ, SAMPLING_RATE, LOOP_BW, GAIN)
-            move_output = subprocess.check_output(['mv', '-v', captured_files[0], new_filename]).decode('utf-8')
-            logger.info(move_output)
+            move_output = subprocess.check_output(['mv', '-v', captured_files[0], new_filename]).decode('utf-8').rstrip('\n')
+            logger.info("Renaming file: " + move_output)
 
             return True, new_filename
     else:
@@ -115,7 +115,7 @@ def process_samples(input_filename, samprate, center_freq, flowgraph_configurati
 
     logger.info("Processing iq-file [{f}] at samplerate {sr} and writing downsampled output to [{of}]".format(f=input_filename, sr=samprate, of=output_filename))
     
-    libload = '{LIB_PATH}/libgnuradio-epirb-1.so.0.0.0\
+    libload =   '{LIB_PATH}/libgnuradio-epirb-1.so.0.0.0\
                 :{LIB_PATH}/libboost_system.so.1.62.0\
                 :{LIB_PATH}/libboost_program_options.so.1.62.0\
                 :{LIB_PATH}/libjsoncpp.so.1'.format(LIB_PATH=LIB_PATH)
@@ -129,7 +129,7 @@ def process_samples(input_filename, samprate, center_freq, flowgraph_configurati
                             '--samprate', str(samprate),\
                             '--output-filename', output_filename,\
                             '--flowgraph-config', flowgraph_configuration,\
-                            '--center-freq', str(center_freq)], env=os.environ).decode('utf-8')
+                            '--center-freq', str(center_freq)], env=os.environ).decode('utf-8').rstrip('\n')
     t2 = datetime.datetime.utcnow()
 
     delta = round((t2 - t1).total_seconds(), 2)
@@ -147,11 +147,11 @@ def process_samples(input_filename, samprate, center_freq, flowgraph_configurati
         # wipe output file if configured
         if KEEP_DOWNSAMPLED_IQ_IF_NO_BEACONS:
             logger.info("Keeping output file [{}], moving to {}".format(output_filename, EXP_IQ_PATH))
-            move_output = subprocess.check_output(['mv', '-v', output_filename, EXP_IQ_PATH]).decode('utf-8')
+            move_output = subprocess.check_output(['mv', '-v', output_filename, EXP_IQ_PATH]).decode('utf-8').rstrip('\n')
             logger.info(move_output)
         else:
             logger.info("Removing output file [{}]".format(output_filename))
-            output_file_cleanup = subprocess.check_output(['rm', '-v', output_filename]).decode('utf-8')
+            output_file_cleanup = subprocess.check_output(['rm', '-v', output_filename]).decode('utf-8').rstrip('\n')
             logger.info(output_file_cleanup)   
 
     else:
@@ -161,11 +161,11 @@ def process_samples(input_filename, samprate, center_freq, flowgraph_configurati
         # wipe output file if configured
         if KEEP_DOWNSAMPLED_IQ_IF_BEACONS:
             logger.info("Keeping output file [{}], moving to {}".format(output_filename, EXP_IQ_PATH))
-            move_output = subprocess.check_output(['mv', '-v', output_filename, EXP_IQ_PATH]).decode('utf-8')
+            move_output = subprocess.check_output(['mv', '-v', output_filename, EXP_IQ_PATH]).decode('utf-8').rstrip('\n')
             logger.info(move_output)
         else:
             logger.info("Removing output file [{}]".format(output_filename))
-            output_file_cleanup = subprocess.check_output(['rm', '-v', output_filename]).decode('utf-8')
+            output_file_cleanup = subprocess.check_output(['rm', '-v', output_filename]).decode('utf-8').rstrip('\n')
             logger.info(output_file_cleanup)
 
         # TODO : log metadata to /home/exp145/tmp/meta
@@ -173,31 +173,41 @@ def process_samples(input_filename, samprate, center_freq, flowgraph_configurati
     # when not in selftest mode, always remove the input iq-file because we no longer need it
     if not TEST_MODE_ACTIVE:
         logger.info("Removing input file [{}]".format(input_filename))
-        input_file_cleanup = subprocess.check_output(['rm', '-v', input_filename]).decode('utf-8')
+        input_file_cleanup = subprocess.check_output(['rm', '-v', input_filename]).decode('utf-8').rstrip('\n')
         logger.info(input_file_cleanup)
 
 
 
-def dump_artifacts():
+def dump_artifacts_cleanup():
     logger.info("Experiment runtime exceeded, moving all data for downlink...")
-    copy_output_log     = subprocess.check_output(['cp', '-r', '-v', EXP_LOG_PATH,  TOGROUND_PATH]).decode('utf-8')
-    copy_output_iq      = subprocess.check_output(['cp', '-r', '-v', EXP_IQ_PATH,   TOGROUND_PATH]).decode('utf-8')
-    copy_output_meta    = subprocess.check_output(['cp', '-r', '-v', EXP_META_PATH, TOGROUND_PATH]).decode('utf-8')
-    full_output = copy_output_log + copy_output_iq + copy_output_meta
+    copy_output_iq      = subprocess.check_output(['cp', '-r', '-v', EXP_IQ_PATH,   TOGROUND_PATH]).decode('utf-8').rstrip('\n')
+    copy_output_meta    = subprocess.check_output(['cp', '-r', '-v', EXP_META_PATH, TOGROUND_PATH]).decode('utf-8').rstrip('\n')
+    full_output = copy_output_iq + copy_output_meta
     for line in full_output.split("\n"):
         logger.info(line)
+    
+    logger.info("Moving logfile {}, output will terminate".format(LOG_FILE))
+    subprocess.check_output(['cp', '-r', '-v', EXP_LOG_PATH,  TOGROUND_PATH]).decode('utf-8').rstrip('\n')
 
-def cleanup():
-    logger.info("Clearing experiment temporary folders...")
     os.system('rm {}/*'.format(EXP_LOG_PATH))
     os.system('rm {}/*'.format(EXP_IQ_PATH))
     os.system('rm {}/*'.format(EXP_META_PATH))
+
 
 def log_info():
     opkg_output_api = subprocess.check_output(['opkg', 'status', 'sepp-api' ]).decode('utf-8')
     opkg_output_sdr = subprocess.check_output(['opkg', 'status', 'sepp-sdr' ]).decode('utf-8')
     opkg_output_exp = subprocess.check_output(['opkg', 'status', 'exp145'   ]).decode('utf-8')
-    lib_versions = subprocess.check_output([BURST_DETECTOR, '--version']).decode('utf-8')
+
+    libload =   '{LIB_PATH}/libgnuradio-epirb-1.so.0.0.0\
+                :{LIB_PATH}/libboost_system.so.1.62.0\
+                :{LIB_PATH}/libboost_program_options.so.1.62.0\
+                :{LIB_PATH}/libjsoncpp.so.1'.format(LIB_PATH=LIB_PATH)
+
+    # preload some libraries that are project specific
+    os.environ['LD_PRELOAD'] = libload
+    lib_versions = subprocess.check_output([BURST_DETECTOR, '--version'], env=os.environ).decode('utf-8')
+
     full_output = opkg_output_api + opkg_output_sdr + opkg_output_exp + lib_versions
     for line in full_output.split("\n"):
         logger.info(line)
@@ -223,9 +233,10 @@ def run_sar_processor():
             time.sleep(5)
 
     # perform cleanup
-    dump_artifacts()
-    cleanup()
+    dump_artifacts_cleanup()
 
+    # shutdown the logger and close all file handlers
+    logging.shutdown()
 
 
 def setup_logger(name, log_file, formatter, level=logging.INFO):
