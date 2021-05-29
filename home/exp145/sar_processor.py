@@ -7,6 +7,7 @@ import configparser
 import logging
 import time
 import datetime
+import json
 
 __author__ = 'Tom Mladenov, Tom.Mladenov@esa.int; Tom.Mladenov@ieee.org'
 
@@ -70,10 +71,16 @@ elif SAMPLING_RATE_CODE == 2:
 elif SAMPLING_RATE_CODE == 3:
     SAMPLING_RATE = 1500000
 
+# if test mode is active, override some of the global parameters
 if TEST_MODE_ACTIVE:
     SAMPLING_RATE       = TEST_SAMPRATE
     FLOWGRAPH_CONFIG    = TEST_FLOWGRAPH
     CENTER_FREQ         = TEST_CENTERFREQ
+
+with open(FLOWGRAPH_CONFIG) as json_file:
+    flowgraph_data = json.load(json_file)
+
+DECIMATION = flowgraph_data["lpf"]["lpf_decimation"]
 
 
 def acquire_samples(config_file):
@@ -84,7 +91,7 @@ def acquire_samples(config_file):
         t1 = datetime.datetime.utcnow()
         os.system(command)
         t2 = datetime.datetime.utcnow()
-        delta = (t2 - t1).seconds
+        delta = round((t2 - t1).total_seconds(), 2)
 
         captured_files = glob.glob('{}/*.iqdat'.format(TMP_PATH))
         if len(captured_files) == 0:
@@ -104,7 +111,7 @@ def acquire_samples(config_file):
 
 def process_samples(input_filename, samprate, center_freq, flowgraph_configuration):
 
-    output_filename = input_filename.split('.')[0] + '_processed' # the gr-epirb lib will append "_37500ksps.cf32" to this
+    output_filename = input_filename.split('.')[0] + '_{}sps.cf32'.format(int(SAMPLING_RATE/DECIMATION))
 
     logger.info("Processing iq-file [{f}] at samplerate {sr} and writing downsampled output to [{of}]".format(f=input_filename, sr=samprate, of=output_filename))
     
@@ -113,6 +120,7 @@ def process_samples(input_filename, samprate, center_freq, flowgraph_configurati
                 :{LIB_PATH}/libboost_program_options.so.1.62.0\
                 :{LIB_PATH}/libjsoncpp.so.1'.format(LIB_PATH=LIB_PATH)
 
+    # preload some libraries that are project specific
     os.environ['LD_PRELOAD'] = libload
     
     t1 = datetime.datetime.utcnow()
@@ -124,7 +132,7 @@ def process_samples(input_filename, samprate, center_freq, flowgraph_configurati
                             '--center-freq', str(center_freq)], env=os.environ).decode('utf-8')
     t2 = datetime.datetime.utcnow()
 
-    delta = (t2 - t1).seconds
+    delta = round((t2 - t1).total_seconds(), 2)
     nr_beacons = output.count('{\"beacon\":{\"freq_hz\"')
 
     logger.info("Finished processing iq-file [{}] in {} seconds  ({} Sps), decoded {} beacons".format(input_filename, delta, float(SAMPLES/delta), nr_beacons))
@@ -189,7 +197,8 @@ def log_info():
     opkg_output_api = subprocess.check_output(['opkg', 'status', 'sepp-api' ]).decode('utf-8')
     opkg_output_sdr = subprocess.check_output(['opkg', 'status', 'sepp-sdr' ]).decode('utf-8')
     opkg_output_exp = subprocess.check_output(['opkg', 'status', 'exp145'   ]).decode('utf-8')
-    full_output = opkg_output_api + opkg_output_sdr + opkg_output_exp
+    lib_versions = subprocess.check_output([BURST_DETECTOR, '--version']).decode('utf-8')
+    full_output = opkg_output_api + opkg_output_sdr + opkg_output_exp + lib_versions
     for line in full_output.split("\n"):
         logger.info(line)
 
@@ -211,7 +220,7 @@ def run_sar_processor():
         if success:
             process_samples(filename, SAMPLING_RATE, CENTER_FREQ, FLOWGRAPH_CONFIG)
         else:
-            time.sleep(1)
+            time.sleep(5)
 
     # perform cleanup
     dump_artifacts()

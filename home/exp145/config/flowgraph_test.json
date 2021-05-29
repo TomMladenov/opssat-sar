@@ -25,7 +25,7 @@
    }, 
    "matched_filter" : {
       "matched_filter_enabled" : false,
-      "matched_filter_decimation" : 4
+      "matched_filter_decimation" : 12
    },
    "clock_recovery" : {
       "clock_recovery_alpha" : 0.05,
