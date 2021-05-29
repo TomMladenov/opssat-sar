@@ -8,7 +8,7 @@ import logging
 import time
 import datetime
 
-__author__ = 'Tom Mladenov, Tom.Mladenov@esa.int Tom.Mladenov@ieee.org'
+__author__ = 'Tom Mladenov, Tom.Mladenov@esa.int; Tom.Mladenov@ieee.org'
 
 EXP_ID = 145
 
@@ -49,7 +49,7 @@ TEST_CENTERFREQ                     = global_config.getint('testing', 'test_cent
 capturing_config = configparser.ConfigParser()
 capturing_config.read(CAPTURE_CONFIG)
 
-CENTER_FREQ         = capturing_config.getfloat('SEPP_SDR_RX', 'carrier_frequency_GHz')*1000000000
+CENTER_FREQ         = int(capturing_config.getfloat('SEPP_SDR_RX', 'carrier_frequency_GHz')*1000000000)
 SAMPLES             = capturing_config.getint('SEPP_SDR_RX', 'number_of_samples')
 RFFE_CALIBRATION    = capturing_config.getboolean('SEPP_SDR_RX', 'rffe_calibration_en')
 GAIN                = capturing_config.getint('SEPP_SDR_RX', 'gain_dB')
@@ -80,7 +80,7 @@ def acquire_samples(config_file):
 
     if not TEST_MODE_ACTIVE:
         command = 'cd {}; sdr_receive_nsamples {}'.format(TMP_PATH, config_file)
-        logger.info("Capturing new iq-file, run command [{}]".format(command))
+        logger.info("Capturing new iq-file from SDR, run command [{}]".format(command))
         t1 = datetime.datetime.utcnow()
         os.system(command)
         t2 = datetime.datetime.utcnow()
@@ -88,11 +88,11 @@ def acquire_samples(config_file):
 
         captured_files = glob.glob('{}/*.iqdat'.format(TMP_PATH))
         if len(captured_files) == 0:
-            logger.error("Failed to capture iq file, acquisition took {} seconds".format(delta))
+            logger.error("Failed to capture iq-file, acquisition took {} seconds".format(delta))
             return False, ""
         else:
-            logger.info("Captured iq-file [{}], acquisition took {} seconds ({} samples/s)".format(captured_files[0], delta, float(SAMPLES/delta)))
-            new_filename = '{}/sdr_iq_{}_{}_{}_{}.cs16'.format(TMP_PATH, t2.strftime("%Y%m%d_%H%M%S"), SAMPLING_RATE, LOOP_BW, GAIN)
+            logger.info("Captured iq-file [{}], acquisition took {} seconds".format(captured_files[0], delta))
+            new_filename = '{}/sdr_iq_{}_{}_{}_{}_{}.cs16'.format(TMP_PATH, t2.strftime("%Y%m%d_%H%M%S"), CENTER_FREQ, SAMPLING_RATE, LOOP_BW, GAIN)
             move_output = subprocess.check_output(['mv', '-v', captured_files[0], new_filename]).decode('utf-8')
             logger.info(move_output)
 
@@ -104,7 +104,7 @@ def acquire_samples(config_file):
 
 def process_samples(input_filename, samprate, center_freq, flowgraph_configuration):
 
-    output_filename = input_filename.split('.')[0] + '_40ksps.cf32'
+    output_filename = input_filename.split('.')[0] + '_processed' # the gr-epirb lib will append "_37500ksps.cf32" to this
 
     logger.info("Processing iq-file [{f}] at samplerate {sr} and writing downsampled output to [{of}]".format(f=input_filename, sr=samprate, of=output_filename))
     
@@ -127,7 +127,7 @@ def process_samples(input_filename, samprate, center_freq, flowgraph_configurati
     delta = (t2 - t1).seconds
     nr_beacons = output.count('{\"beacon\":{\"freq_hz\"')
 
-    logger.info("Finished processing iq-file [{}] in {} seconds, decoded {} beacons".format(input_filename, delta, nr_beacons))
+    logger.info("Finished processing iq-file [{}] in {} seconds  ({} Sps), decoded {} beacons".format(input_filename, delta, float(SAMPLES/delta), nr_beacons))
 
     if nr_beacons == 0:
         if KEEP_DECODER_LOG_IF_NOBEACONS:
@@ -160,7 +160,9 @@ def process_samples(input_filename, samprate, center_freq, flowgraph_configurati
             output_file_cleanup = subprocess.check_output(['rm', '-v', output_filename]).decode('utf-8')
             logger.info(output_file_cleanup)
 
-    # wipe input file
+        # TODO : log metadata to /home/exp145/tmp/meta
+
+    # when not in selftest mode, always remove the input iq-file because we no longer need it
     if not TEST_MODE_ACTIVE:
         logger.info("Removing input file [{}]".format(input_filename))
         input_file_cleanup = subprocess.check_output(['rm', '-v', input_filename]).decode('utf-8')
@@ -241,5 +243,5 @@ def setup_logger(name, log_file, formatter, level=logging.INFO):
 if __name__ == '__main__':
     """Run the main program loop."""
 
-    # Start the app.
+    # run a sar processor
     run_sar_processor()
