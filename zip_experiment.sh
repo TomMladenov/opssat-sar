@@ -7,7 +7,7 @@ NAME=Mladenov
 
 mkdir -p delivery
 
-version=$(git describe --tags)
+version=$(git describe --tags --always)
 
 if [[ $(git diff --stat) != '' ]]; then
   version="${version}-dirty"
