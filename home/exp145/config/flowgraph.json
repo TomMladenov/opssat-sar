@@ -1,7 +1,7 @@
 {
    "lpf" : {
-      "lpf_freq_offset" : -26000,
-      "lpf_decimation" : 5,
+      "lpf_freq_offset" : 125000,
+      "lpf_decimation" : 40,
       "lpf_transition" : 3500,
       "lpf_cutoff" : 15000,
       "lpf_attn" : 50,
