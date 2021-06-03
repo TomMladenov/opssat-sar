@@ -1,7 +1,7 @@
 {
    "lpf" : {
-      "lpf_freq_offset" : 125000,
-      "lpf_decimation" : 40,
+      "lpf_freq_offset" : -26000,
+      "lpf_decimation" : 5,
       "lpf_transition" : 3500,
       "lpf_cutoff" : 15000,
       "lpf_attn" : 50,
@@ -17,15 +17,19 @@
       "pll_max_freq_dev" : 15000.0,
       "pll_loop_bw" : 0.031
    },
+   "dc_block" : {
+      "dc_block_en" : true,
+      "dc_block_len" : 128
+   },
    "rrc" : {
       "rrc_enabled" : true,
       "rrc_decimation" : 12,
       "rrc_alpha" : 0.25,
       "rrc_taps" : 50
-   }, 
+   },
    "matched_filter" : {
       "matched_filter_enabled" : false,
-      "matched_filter_decimation" : 4
+      "matched_filter_decimation" : 12
    },
    "clock_recovery" : {
       "clock_recovery_alpha" : 0.05,

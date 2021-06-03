@@ -17,6 +17,10 @@
       "pll_max_freq_dev" : 15000.0,
       "pll_loop_bw" : 0.031
    },
+   "dc_block" : {
+      "dc_block_en" : true,
+      "dc_block_len" : 128
+   },   
    "rrc" : {
       "rrc_enabled" : true,
       "rrc_decimation" : 12,
