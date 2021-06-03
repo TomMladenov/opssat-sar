@@ -5,6 +5,8 @@ REMOTE=opssat1.esoc.esa.int
 USER=exp145
 NAME=Mladenov
 
+mkdir -p delivery
+
 version=$(git describe --tags)
 
 if [[ $(git diff --stat) != '' ]]; then
