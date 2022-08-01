@@ -15,35 +15,60 @@ EXP_ID = 145
 
 # global path variables
 BASE_PATH = '/home/exp{}'.format(EXP_ID)
+TEST_PATH = BASE_PATH + '/test'
 TOGROUND_PATH = BASE_PATH + '/toGround'
 TOGROUNDLP_PATH = BASE_PATH + '/toGroundLP'
 LIB_PATH = BASE_PATH + '/libs'
-TMP_PATH = '/tmp'
 EXP_LOG_PATH = BASE_PATH + '/tmp/log'
 EXP_IQ_PATH = BASE_PATH + '/tmp/iq'
+EXP_WF_PATH = BASE_PATH + '/tmp/wf'
 EXP_META_PATH = BASE_PATH + '/tmp/meta'
 
+TMP_PATH = '/tmp'
+
 # file path variables
-BURST_DETECTOR = BASE_PATH + '/bin/epirb_burst_detector'
-GLOBAL_CONFIG = BASE_PATH + '/config/global.ini'
+PREPROCESSOR    = BASE_PATH + '/bin/preprocessor'
+BURST_DETECTOR  = BASE_PATH + '/bin/epirb_burst_detector'
+WF_RENDER       = BASE_PATH + '/bin/renderfall'
+GLOBAL_CONFIG   = BASE_PATH + '/config/global.ini'
 
 # read global configuration ini
 global_config = configparser.ConfigParser()
 global_config.read(GLOBAL_CONFIG)
 
-CAPTURE_CONFIG                      = global_config.get('capture_config', 'capture_configuration')
-FLOWGRAPH_CONFIG                    = global_config.get('flowgraph_config', 'flowgraph_configuration')
+# general
+TEST_MODE_ACTIVE                    = global_config.getboolean('general', 'test_mode_active')
+ML_ENABLED                          = global_config.getboolean('general', 'ml_enabled')
 RUNTIME                             = global_config.getint('general', 'runtime_seconds')
 KEEP_DECODER_LOG_IF_NOBEACONS       = global_config.getboolean('general', 'keep_decoder_log_if_no_beacons')
 KEEP_DOWNSAMPLED_IQ_IF_BEACONS      = global_config.getboolean('general', 'keep_downsampled_iq_if_beacons')
 KEEP_DOWNSAMPLED_IQ_IF_NO_BEACONS   = global_config.getboolean('general', 'keep_downsampled_iq_if_no_beacons')
 
+# capture configuration
+CAPTURE_CONFIG                      = global_config.get('capture_config', 'capture_configuration')
+CAPTURE_TESTFILE                    = global_config.get('capture_config', 'capture_testfile')
+
+# preprocessor configuration
+PREPROCESS_CONFIG                   = global_config.get('preprocess_config', 'preprocess_configuration')
+
+# process configiruation
+PREPROCESS_CONFIG                   = global_config.get('process_config', 'process_configuration')
+
+# wf render configuration
+WF_WINDOW                           = global_config.get('wf_config', 'wf_window')
+WF_LENGTH                           = global_config.getint('wf_config', 'wf_length')
+WF_FORMAT                           = global_config.get('wf_config', 'wf_format')
+WF_BINS                             = global_config.getint('wf_config', 'wf_bins')
+
+# inference configuration
+MODEL_FILE                          = global_config.get('model_config', 'model_file')
+MODEL_META                          = global_config.get('model_config', 'model_meta')
+MODEL_THRESHOLD                     = global_config.getfloat('model_config', 'model_threshold')
+
 # test settings
-TEST_MODE_ACTIVE                    = global_config.getboolean('testing', 'test_mode_active')
-TEST_FILE                           = global_config.get('testing', 'test_file')
-TEST_SAMPRATE                       = global_config.getint('testing', 'test_samprate')
-TEST_FLOWGRAPH                      = global_config.get('testing', 'test_flowgraph')
-TEST_CENTERFREQ                     = global_config.getint('testing', 'test_centerfreq')
+TEST_SAMPRATE                       = global_config.getint('test_config', 'test_samprate')
+TEST_FLOWGRAPH                      = global_config.get('test_config', 'test_flowgraph')
+TEST_CENTERFREQ                     = global_config.getint('test_config', 'test_centerfreq')
 
 
 # readon secondary linked capture configuration ini
@@ -77,11 +102,14 @@ if TEST_MODE_ACTIVE:
     FLOWGRAPH_CONFIG    = TEST_FLOWGRAPH
     CENTER_FREQ         = TEST_CENTERFREQ
 
+TEST_FILES = sorted(glob.glob(TEST_PATH + '/*.cf32'))
+current_testfile_index = 0
+
+
 with open(FLOWGRAPH_CONFIG) as json_file:
     flowgraph_data = json.load(json_file)
 
 DECIMATION = flowgraph_data["lpf"]["lpf_decimation"]
-
 
 def acquire_samples(config_file):
 
@@ -95,25 +123,77 @@ def acquire_samples(config_file):
 
         captured_files = glob.glob('{}/*.iqdat'.format(TMP_PATH))
         if len(captured_files) == 0:
-            logger.error("Failed to capture iq-file, acquisition took {} seconds".format(delta))
-            return False, ""
+            message = "Failed to capture iq-file, acquisition took {} seconds".format(delta)
+            logger.error(message)
+            raise Exception(message)
         else:
             logger.info("Captured iq-file [{}], acquisition took {} seconds".format(captured_files[0], delta))
             new_filename = '{}/sdr_iq_{}_{}_{}_{}_{}.cs16'.format(TMP_PATH, t2.strftime("%Y%m%d_%H%M%S"), CENTER_FREQ, SAMPLING_RATE, LOOP_BW, GAIN)
-            move_output = subprocess.check_output(['mv', '-v', captured_files[0], new_filename]).decode('utf-8').rstrip('\n')
+            move_output = get_output(['mv', '-v', captured_files[0], new_filename])
             logger.info("Renaming file: " + move_output)
-
-            return True, new_filename
+            return new_filename
     else:
-        logger.warning("Running in testmode, returning testfile [{}]".format(TEST_FILE))
-        return True, TEST_FILE
+        logger.info("Running in testmode, acquisition returning .cs16 testfile [{}]".format(CAPTURE_TESTFILE))
+        return CAPTURE_TESTFILE
 
 
-def process_samples(input_filename, samprate, center_freq, flowgraph_configuration):
+def preprocess_samples(flowgraph_configuration, input_filename, override_output_filename=None):
+    if override_output_filename == None:
+        output_filename = input_filename.split('.')[0] + '_{}sps.cf32'.format(int(SAMPLING_RATE/DECIMATION))
+        # do preprocessing
+
+    else:
+        output_filename = override_output_filename
+
+    logger.info("Finished processing [{}] in {}s, output file: {}".format(input_filename, 1, output_filename))
+    return output_filename
+
+
+def render_waterfall(input_filename):
+    png_filename = input_filename.replace('.cf32', '.png') # intermediate file, will be deleted later
+    output_filename = EXP_WF_PATH + '/' + input_filename.replace('.cf32', '.jpg').split('/')[-1]
+    
+    command = '{} -n {} -v -f {} -l {} -w {} -o {} {} && pngtopnm {} | ppmtojpeg > {}'.format(   
+                                                                                                    WF_RENDER,\
+                                                                                                    WF_BINS,\
+                                                                                                    WF_FORMAT,\
+                                                                                                    WF_LENGTH,\
+                                                                                                    WF_WINDOW,\
+                                                                                                    png_filename,\
+                                                                                                    input_filename,\
+                                                                                                    png_filename,\
+                                                                                                    output_filename
+                                                                                                )
+
+    logger.info("Running command: ${}".format(command))                                                                                            
+    ps = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=os.environ)
+    output = ps.communicate()[0]
+    for line in output.decode('utf-8').split("\n"):
+        logger.info(line)
+
+    logger.info(get_output(['rm', '-v', png_filename]))
+
+    if os.path.exists(output_filename):
+        logger.info("Written .JPEG spectrogram: {}".format(output_filename))
+    else:
+        logger.error("Error during .JPEG spectrogram generation")
+        raise Exception("Error during .JPEG spectrogram generation")
+
+    return output_filename
+
+def run_inference(model_configuration, input_filename):
+    return [-5384.0]
+
+def process_samples(input_filename, samprate, center_freq, flowgraph_configuration, predictions=None):
+
+    # if predictions == None:
+    #     logger.info("Processing file [{}], no predictions supplied - wideband filtering will be used")
+    # else:
+    #     logger.info("Processing file [{}], no predictions supplied - wideband filtering will be used")
 
     output_filename = input_filename.split('.')[0] + '_{}sps.cf32'.format(int(SAMPLING_RATE/DECIMATION))
 
-    logger.info("Processing iq-file [{f}] at samplerate {sr} and writing downsampled output to [{of}]".format(f=input_filename, sr=samprate, of=output_filename))
+    logger.info("Processing file [{f}] at samplerate {sr}".format(f=input_filename, sr=samprate))
     
     libload =   '{LIB_PATH}/libgnuradio-epirb-1.so.0.0.0\
                 :{LIB_PATH}/libboost_system.so.1.62.0\
@@ -135,7 +215,7 @@ def process_samples(input_filename, samprate, center_freq, flowgraph_configurati
     delta = round((t2 - t1).total_seconds(), 2)
     nr_beacons = output.count('{\"beacon\":{\"freq_hz\"')
 
-    logger.info("Finished processing iq-file [{}] in {} seconds  ({} Sps), decoded {} beacons".format(input_filename, delta, float(SAMPLES/delta), nr_beacons))
+    logger.info("Finished processing file [{}] in {} seconds  ({} Sps), decoded {} beacons".format(input_filename, delta, float(SAMPLES/delta), nr_beacons))
 
     if nr_beacons == 0:
         if KEEP_DECODER_LOG_IF_NOBEACONS:
@@ -147,11 +227,11 @@ def process_samples(input_filename, samprate, center_freq, flowgraph_configurati
         # wipe output file if configured
         if KEEP_DOWNSAMPLED_IQ_IF_NO_BEACONS:
             logger.info("Keeping output file [{}], moving to {}".format(output_filename, EXP_IQ_PATH))
-            move_output = subprocess.check_output(['mv', '-v', output_filename, EXP_IQ_PATH]).decode('utf-8').rstrip('\n')
+            move_output = get_output(['mv', '-v', output_filename, EXP_IQ_PATH])
             logger.info(move_output)
         else:
             logger.info("Removing output file [{}]".format(output_filename))
-            output_file_cleanup = subprocess.check_output(['rm', '-v', output_filename]).decode('utf-8').rstrip('\n')
+            output_file_cleanup = get_output(['rm', '-v', output_filename])
             logger.info(output_file_cleanup)   
 
     else:
@@ -161,36 +241,38 @@ def process_samples(input_filename, samprate, center_freq, flowgraph_configurati
         # wipe output file if configured
         if KEEP_DOWNSAMPLED_IQ_IF_BEACONS:
             logger.info("Keeping output file [{}], moving to {}".format(output_filename, EXP_IQ_PATH))
-            move_output = subprocess.check_output(['mv', '-v', output_filename, EXP_IQ_PATH]).decode('utf-8').rstrip('\n')
+            move_output = get_output(['mv', '-v', output_filename, EXP_IQ_PATH])
             logger.info(move_output)
         else:
             logger.info("Removing output file [{}]".format(output_filename))
-            output_file_cleanup = subprocess.check_output(['rm', '-v', output_filename]).decode('utf-8').rstrip('\n')
+            output_file_cleanup = get_output(['rm', '-v', output_filename])
             logger.info(output_file_cleanup)
 
-        # TODO : log metadata to /home/exp145/tmp/meta
 
     # when not in selftest mode, always remove the input iq-file because we no longer need it
     if not TEST_MODE_ACTIVE:
         logger.info("Removing input file [{}]".format(input_filename))
-        input_file_cleanup = subprocess.check_output(['rm', '-v', input_filename]).decode('utf-8').rstrip('\n')
+        input_file_cleanup = get_output(['rm', '-v', input_filename])
         logger.info(input_file_cleanup)
 
-
+def get_output(cmd):
+    return subprocess.check_output(cmd).decode('utf-8').rstrip('\n')
 
 def dump_artifacts_cleanup():
-    logger.info("Experiment runtime exceeded, moving all data for downlink...")
-    copy_output_iq      = subprocess.check_output(['cp', '-r', '-v', EXP_IQ_PATH,   TOGROUND_PATH]).decode('utf-8').rstrip('\n')
-    copy_output_meta    = subprocess.check_output(['cp', '-r', '-v', EXP_META_PATH, TOGROUND_PATH]).decode('utf-8').rstrip('\n')
-    full_output = copy_output_iq + copy_output_meta
+    logger.info("Moving all data for downlink...")
+    copy_output_iq      = get_output(['cp', '-r', '-v', EXP_IQ_PATH,   TOGROUND_PATH])
+    copy_output_wf    = get_output(['cp', '-r', '-v', EXP_WF_PATH,   TOGROUND_PATH])
+    copy_output_meta    = get_output(['cp', '-r', '-v', EXP_META_PATH, TOGROUND_PATH])
+    full_output = copy_output_iq + copy_output_wf + copy_output_meta
     for line in full_output.split("\n"):
         logger.info(line)
     
     logger.info("Moving logfile {}, output will terminate".format(LOG_FILE))
-    subprocess.check_output(['cp', '-r', '-v', EXP_LOG_PATH,  TOGROUND_PATH]).decode('utf-8').rstrip('\n')
+    subprocess.check_output(['cp', '-r', '-v', EXP_LOG_PATH,  TOGROUND_PATH])
 
     os.system('rm {}/*'.format(EXP_LOG_PATH))
     os.system('rm {}/*'.format(EXP_IQ_PATH))
+    os.system('rm {}/*'.format(EXP_WF_PATH))
     os.system('rm {}/*'.format(EXP_META_PATH))
 
 
@@ -213,9 +295,21 @@ def log_info():
         logger.info(line)
 
 
+def setup():
+    logger.info("Cleaning up {} directory".format(TMP_PATH))
+
+    fileList = glob.glob(TMP_PATH + '/*.iqdat')
+    for filePath in fileList:
+        try:
+            rm_output = get_output(['rm', '-v', TMP_PATH + '/*.iqdat'])
+            logger.info(rm_output)
+        except:
+            logger.error("Error while deleting file {}".format(filePath))
+
+
 def run_sar_processor():
 
-    formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+    formatter = logging.Formatter('%(asctime)s %(levelname)s:%(funcName)25s() %(message)s')
     logging.Formatter.converter = time.gmtime
 
     global logger
@@ -224,12 +318,35 @@ def run_sar_processor():
     # start by logging some version information
     log_info()
 
-    # start a capturing loop with time limit
-    while (datetime.datetime.utcnow() - START_TIME).seconds < RUNTIME:
-        success, filename = acquire_samples(CAPTURE_CONFIG)
-        if success:
-            process_samples(filename, SAMPLING_RATE, CENTER_FREQ, FLOWGRAPH_CONFIG)
-        else:
+    # cleanup /tmp from any previous *.iqdat files that were acquired but not processed
+    setup()
+
+    # start a capturing loop with time limit, fixed list in case of TEST_MODE_ACTIVE
+    if TEST_MODE_ACTIVE:
+        for testfile in sorted(glob.glob(TEST_PATH + '/*.cf32')):
+            filename_acquired_cs16      = acquire_samples(CAPTURE_CONFIG)
+            filename_preprocessed_cf32  = preprocess_samples(PREPROCESS_CONFIG, filename_acquired_cs16, override_output_filename=testfile)
+
+            if ML_ENABLED:
+                filename_waterfall_jpg  = render_waterfall(filename_preprocessed_cf32)
+            #     predictions                 = run_inference(MODEL_CONFIG, filename_waterfall_jpg)
+            # else:
+            #     predictions = None            
+
+            # beacons                     = process_samples(PROCESS_CONFIG, filename_preprocessed_cf32, predictions)
+
+    else:
+        while (datetime.datetime.utcnow() - START_TIME).seconds < RUNTIME:
+            filename_acquired_cs16      = acquire_samples(CAPTURE_CONFIG)
+            filename_preprocessed_cf32  = preprocess_samples(PREPROCESS_CONFIG, filename_acquired_cs16)
+
+            if ML_ENABLED:
+                filename_waterfall_jpg      = render_waterfall(testfile)
+                predictions                 = run_inference(MODEL_CONFIG, filename_waterfall_jpg)
+            else:
+                predictions = None
+            
+            beacons = process_samples(PROCESS_CONFIG, filename_preprocessed_cf32, predictions)
             time.sleep(5)
 
     # perform cleanup
