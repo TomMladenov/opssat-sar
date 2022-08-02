@@ -39,10 +39,7 @@ global_config.read(GLOBAL_CONFIG)
 # general
 TEST_MODE_ACTIVE                    = global_config.getboolean('general', 'test_mode_active')
 ML_ENABLED                          = global_config.getboolean('general', 'ml_enabled')
-RUNTIME                             = global_config.getint('general', 'runtime_seconds')
-KEEP_DECODER_LOG_IF_NOBEACONS       = global_config.getboolean('general', 'keep_decoder_log_if_no_beacons')
-KEEP_DOWNSAMPLED_IQ_IF_BEACONS      = global_config.getboolean('general', 'keep_downsampled_iq_if_beacons')
-KEEP_DOWNSAMPLED_IQ_IF_NO_BEACONS   = global_config.getboolean('general', 'keep_downsampled_iq_if_no_beacons')
+RUNTIME                             = global_config.getint('general'    , 'runtime_seconds')
 
 # capture configuration
 CAPTURE_CONFIG                      = global_config.get('capture_config', 'capture_configuration')
@@ -52,13 +49,14 @@ CAPTURE_TESTFILE                    = global_config.get('capture_config', 'captu
 PREPROCESS_CONFIG                   = global_config.get('preprocess_config', 'preprocess_configuration')
 
 # process configiruation
-PREPROCESS_CONFIG                   = global_config.get('process_config', 'process_configuration')
+PROCESS_CONFIG                      = global_config.get('process_config', 'process_configuration')
+PROCESS_CONFIG_ML                   = global_config.get('process_config', 'process_configuration_ml')
 
 # wf render configuration
-WF_WINDOW                           = global_config.get('wf_config', 'wf_window')
-WF_LENGTH                           = global_config.getint('wf_config', 'wf_length')
-WF_FORMAT                           = global_config.get('wf_config', 'wf_format')
-WF_BINS                             = global_config.getint('wf_config', 'wf_bins')
+WF_WINDOW                           = global_config.get('wf_config'     , 'wf_window')
+WF_LENGTH                           = global_config.getint('wf_config'  , 'wf_length')
+WF_FORMAT                           = global_config.get('wf_config'     , 'wf_format')
+WF_BINS                             = global_config.getint('wf_config'  , 'wf_bins')
 
 # inference configuration
 MODEL_FILE                          = global_config.get('model_config', 'model_file')
@@ -67,9 +65,10 @@ MODEL_THRESHOLD                     = global_config.getfloat('model_config', 'mo
 
 # test settings
 TEST_SAMPRATE                       = global_config.getint('test_config', 'test_samprate')
-TEST_FLOWGRAPH                      = global_config.get('test_config', 'test_flowgraph')
-TEST_CENTERFREQ                     = global_config.getint('test_config', 'test_centerfreq')
-
+TEST_CENTERFREQ                     = global_config.getfloat('test_config'   , 'test_centerfreq')
+TEST_DECIMATION                     = global_config.getint('test_config', 'test_decimation')
+TEST_FILES = sorted(glob.glob(TEST_PATH + '/*.cf32'))
+current_testfile_index = 0
 
 # readon secondary linked capture configuration ini
 capturing_config = configparser.ConfigParser()
@@ -96,20 +95,6 @@ elif SAMPLING_RATE_CODE == 2:
 elif SAMPLING_RATE_CODE == 3:
     SAMPLING_RATE = 1500000
 
-# if test mode is active, override some of the global parameters
-if TEST_MODE_ACTIVE:
-    SAMPLING_RATE       = TEST_SAMPRATE
-    FLOWGRAPH_CONFIG    = TEST_FLOWGRAPH
-    CENTER_FREQ         = TEST_CENTERFREQ
-
-TEST_FILES = sorted(glob.glob(TEST_PATH + '/*.cf32'))
-current_testfile_index = 0
-
-
-with open(FLOWGRAPH_CONFIG) as json_file:
-    flowgraph_data = json.load(json_file)
-
-DECIMATION = flowgraph_data["lpf"]["lpf_decimation"]
 
 def acquire_samples(config_file):
 
@@ -145,7 +130,7 @@ def preprocess_samples(flowgraph_configuration, input_filename, override_output_
     else:
         output_filename = override_output_filename
 
-    logger.info("Finished processing [{}] in {}s, output file: {}".format(input_filename, 1, output_filename))
+    logger.info("Finished preprocessing [{}] in {}s, output file: {}".format(input_filename, 1, output_filename))
     return output_filename
 
 
@@ -153,7 +138,7 @@ def render_waterfall(input_filename):
     png_filename = input_filename.replace('.cf32', '.png') # intermediate file, will be deleted later
     output_filename = EXP_WF_PATH + '/' + input_filename.replace('.cf32', '.jpg').split('/')[-1]
     
-    command = '{} -n {} -v -f {} -l {} -w {} -o {} {} && pngtopnm {} | ppmtojpeg > {}'.format(   
+    command = '{} -n {} -v -f {} -l {} -w {} -o {} {} && pngtopnm -quiet {} | ppmtojpeg -quiet > {}'.format(   
                                                                                                     WF_RENDER,\
                                                                                                     WF_BINS,\
                                                                                                     WF_FORMAT,\
@@ -181,20 +166,17 @@ def render_waterfall(input_filename):
 
     return output_filename
 
-def run_inference(model_configuration, input_filename):
+def run_inference(input_filename):
+    logger.info("Running inference on input file [{}], using model file [{}]".format(input_filename, MODEL_FILE))
     return [-5384.0]
 
-def process_samples(input_filename, samprate, center_freq, flowgraph_configuration, predictions=None):
+def process_samples(input_filename, samprate, decimation, center_freq, flowgraph_configuration, prediction=None):
 
-    # if predictions == None:
-    #     logger.info("Processing file [{}], no predictions supplied - wideband filtering will be used")
-    # else:
-    #     logger.info("Processing file [{}], no predictions supplied - wideband filtering will be used")
-
-    output_filename = input_filename.split('.')[0] + '_{}sps.cf32'.format(int(SAMPLING_RATE/DECIMATION))
-
-    logger.info("Processing file [{f}] at samplerate {sr}".format(f=input_filename, sr=samprate))
+    logger.info("Processing file [{f}] using predictions: [{p}]".format(f=input_filename, p=prediction))
     
+    skip = 0
+    offset = 0.0 if prediction == None else prediction
+
     libload =   '{LIB_PATH}/libgnuradio-epirb-1.so.0.0.0\
                 :{LIB_PATH}/libboost_system.so.1.62.0\
                 :{LIB_PATH}/libboost_program_options.so.1.62.0\
@@ -202,58 +184,27 @@ def process_samples(input_filename, samprate, center_freq, flowgraph_configurati
 
     # preload some libraries that are project specific
     os.environ['LD_PRELOAD'] = libload
-    
+
     t1 = datetime.datetime.utcnow()
-    output = subprocess.check_output([BURST_DETECTOR,\
-                            '--filename', input_filename,\
-                            '--samprate', str(samprate),\
-                            '--output-filename', output_filename,\
-                            '--flowgraph-config', flowgraph_configuration,\
-                            '--center-freq', str(center_freq)], env=os.environ).decode('utf-8').rstrip('\n')
+    command = [BURST_DETECTOR,\
+                '--filename', input_filename,\
+                '--samprate', str(samprate),\
+                '--flowgraph-config', flowgraph_configuration,\
+                '--decimation', str(decimation),\
+                '--offset', str(offset),\
+                '--center-freq', str(center_freq),\
+                '--skip', str(skip)]
+    logger.info("Running command: {}".format(command))
+    output = subprocess.check_output(command, env=os.environ).decode('utf-8')
     t2 = datetime.datetime.utcnow()
+
+    for line in output.split("\n"):
+        logger.info(line)
 
     delta = round((t2 - t1).total_seconds(), 2)
     nr_beacons = output.count('{\"beacon\":{\"freq_hz\"')
 
-    logger.info("Finished processing file [{}] in {} seconds  ({} Sps), decoded {} beacons".format(input_filename, delta, float(SAMPLES/delta), nr_beacons))
-
-    if nr_beacons == 0:
-        if KEEP_DECODER_LOG_IF_NOBEACONS:
-            for line in output.split("\n"):
-                logger.info(line)
-        else:
-            logger.warning("No beacons decoded, supressed decoder output...".format(input_filename, delta, nr_beacons))
-
-        # wipe output file if configured
-        if KEEP_DOWNSAMPLED_IQ_IF_NO_BEACONS:
-            logger.info("Keeping output file [{}], moving to {}".format(output_filename, EXP_IQ_PATH))
-            move_output = get_output(['mv', '-v', output_filename, EXP_IQ_PATH])
-            logger.info(move_output)
-        else:
-            logger.info("Removing output file [{}]".format(output_filename))
-            output_file_cleanup = get_output(['rm', '-v', output_filename])
-            logger.info(output_file_cleanup)   
-
-    else:
-        for line in output.split("\n"):
-            logger.info(line)
-
-        # wipe output file if configured
-        if KEEP_DOWNSAMPLED_IQ_IF_BEACONS:
-            logger.info("Keeping output file [{}], moving to {}".format(output_filename, EXP_IQ_PATH))
-            move_output = get_output(['mv', '-v', output_filename, EXP_IQ_PATH])
-            logger.info(move_output)
-        else:
-            logger.info("Removing output file [{}]".format(output_filename))
-            output_file_cleanup = get_output(['rm', '-v', output_filename])
-            logger.info(output_file_cleanup)
-
-
-    # when not in selftest mode, always remove the input iq-file because we no longer need it
-    if not TEST_MODE_ACTIVE:
-        logger.info("Removing input file [{}]".format(input_filename))
-        input_file_cleanup = get_output(['rm', '-v', input_filename])
-        logger.info(input_file_cleanup)
+    logger.info("Finished processing file [{}] in {}s, decoded {} beacons".format(input_filename, delta, nr_beacons))
 
 def get_output(cmd):
     return subprocess.check_output(cmd).decode('utf-8').rstrip('\n')
@@ -261,9 +212,9 @@ def get_output(cmd):
 def dump_artifacts_cleanup():
     logger.info("Moving all data for downlink...")
     copy_output_iq      = get_output(['cp', '-r', '-v', EXP_IQ_PATH,   TOGROUND_PATH])
-    copy_output_wf    = get_output(['cp', '-r', '-v', EXP_WF_PATH,   TOGROUND_PATH])
+    copy_output_wf      = get_output(['cp', '-r', '-v', EXP_WF_PATH,   TOGROUND_PATH])
     copy_output_meta    = get_output(['cp', '-r', '-v', EXP_META_PATH, TOGROUND_PATH])
-    full_output = copy_output_iq + copy_output_wf + copy_output_meta
+    full_output = copy_output_iq + '\n' + copy_output_wf + '\n' + copy_output_meta
     for line in full_output.split("\n"):
         logger.info(line)
     
@@ -294,6 +245,10 @@ def log_info():
     for line in full_output.split("\n"):
         logger.info(line)
 
+    logger.info("Dump global configuration...")
+    for item in global_config.items():
+        logger.info(item)
+
 
 def setup():
     logger.info("Cleaning up {} directory".format(TMP_PATH))
@@ -323,17 +278,18 @@ def run_sar_processor():
 
     # start a capturing loop with time limit, fixed list in case of TEST_MODE_ACTIVE
     if TEST_MODE_ACTIVE:
-        for testfile in sorted(glob.glob(TEST_PATH + '/*.cf32')):
+        for testfile in TEST_FILES:
             filename_acquired_cs16      = acquire_samples(CAPTURE_CONFIG)
             filename_preprocessed_cf32  = preprocess_samples(PREPROCESS_CONFIG, filename_acquired_cs16, override_output_filename=testfile)
 
             if ML_ENABLED:
                 filename_waterfall_jpg  = render_waterfall(filename_preprocessed_cf32)
-            #     predictions                 = run_inference(MODEL_CONFIG, filename_waterfall_jpg)
-            # else:
-            #     predictions = None            
-
-            # beacons                     = process_samples(PROCESS_CONFIG, filename_preprocessed_cf32, predictions)
+                predictions             = run_inference(filename_waterfall_jpg)
+                for p in predictions:
+                    beacons     = process_samples(filename_preprocessed_cf32, TEST_SAMPRATE, TEST_DECIMATION, TEST_CENTERFREQ, PROCESS_CONFIG_ML, prediction=p)
+                    
+            else:
+                beacons     = process_samples(filename_preprocessed_cf32, TEST_SAMPRATE, TEST_DECIMATION, TEST_CENTERFREQ, PROCESS_CONFIG, prediction=None)
 
     else:
         while (datetime.datetime.utcnow() - START_TIME).seconds < RUNTIME:
@@ -342,11 +298,11 @@ def run_sar_processor():
 
             if ML_ENABLED:
                 filename_waterfall_jpg      = render_waterfall(testfile)
-                predictions                 = run_inference(MODEL_CONFIG, filename_waterfall_jpg)
+                predictions                 = run_inference(filename_waterfall_jpg)
+                for p in predictions:
+                    beacons     = process_samples(filename_preprocessed_cf32, TEST_SAMPRATE, TEST_DECIMATION, TEST_CENTERFREQ, PROCESS_CONFIG_ML, prediction=p)
             else:
-                predictions = None
-            
-            beacons = process_samples(PROCESS_CONFIG, filename_preprocessed_cf32, predictions)
+                beacons = process_samples(PROCESS_CONFIG, filename_preprocessed_cf32, prediction=None)
             time.sleep(5)
 
     # perform cleanup
