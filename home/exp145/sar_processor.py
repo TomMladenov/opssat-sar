@@ -27,10 +27,10 @@ EXP_META_PATH = BASE_PATH + '/tmp/meta'
 TMP_PATH = '/tmp'
 
 # file path variables
-PREPROCESSOR    = BASE_PATH + '/bin/preprocessor'
-BURST_DETECTOR  = BASE_PATH + '/bin/epirb_burst_detector'
-WF_RENDER       = BASE_PATH + '/bin/renderfall'
-GLOBAL_CONFIG   = BASE_PATH + '/config/global.ini'
+BEACON_DETECTOR     = BASE_PATH + '/bin/armhf/tensorflow/lite/c/image_classifier
+BEACON_DEMODULATOR  = BASE_PATH + '/exec/beacon_demodulator'
+WF_RENDER           = BASE_PATH + '/exec/renderfall'
+GLOBAL_CONFIG       = BASE_PATH + '/config/global.ini'
 
 # read global configuration ini
 global_config = configparser.ConfigParser()
