@@ -143,7 +143,7 @@ def render_waterfall(input_filename):
     png_filename = input_filename.replace('.cf32', '.png') # intermediate file, will be deleted later
     output_filename = EXP_WF_PATH + '/' + input_filename.replace('.cf32', '.jpg').split('/')[-1]
 
-    libload =   '{LIB_PATH}/libfftw3.so.3'.format(LIB_PATH=LIB_PATH)
+    libload =   '{LIB_PATH}/libfftw3.so.3:{LIB_PATH}/libnetpbm.so.10'.format(LIB_PATH=LIB_PATH)
 
     # preload some libraries that are project specific
     os.environ['LD_PRELOAD'] = libload
