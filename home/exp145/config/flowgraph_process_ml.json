@@ -1,7 +1,7 @@
 {
     "lpf" : {
-       "lpf_transition" : 2000,
-       "lpf_cutoff" : 2000,
+       "lpf_transition" : 1000,
+       "lpf_cutoff" : 3000,
        "lpf_attn" : 50,
        "lpf_alpha" : 0.25
     },

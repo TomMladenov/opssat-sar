@@ -3,9 +3,9 @@ chown -R exp145:exp145 /home/exp145
 chmod -R 770 /home/exp145
 chmod +x /home/exp145/start_exp145.sh
 chmod +x /home/exp145/stop_exp145.sh
-chmod +x /home/exp145/bin/armhf/tensorflow/lite/c/image_classifier
+chmod +x /home/exp145/bin/armhf/tensorflow/lite/c/beacon_detector
 chmod +x /home/exp145/exec/beacon_demodulator
-chmod +x /home/exp145/exec/beacon_detector
+chmod +x /home/exp145/exec/renderfall
 ln -s /home/exp145/bin/armhf/external/farmhash_archive/libfarmhash.so /home/exp145/bin/armhf/_solib_armhf/libexternal_Sfarmhash_Uarchive_Slibfarmhash.so
 ln -s /home/exp145/bin/armhf/external/fft2d/libfft2d.so /home/exp145/bin/armhf/_solib_armhf/libexternal_Sfft2d_Slibfft2d.so
 ln -s /home/exp145/bin/armhf/external/flatbuffers/src/libflatbuffers.so /home/exp145/bin/armhf/_solib_armhf/libexternal_Sflatbuffers_Ssrc_Slibflatbuffers.so

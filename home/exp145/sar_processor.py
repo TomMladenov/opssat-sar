@@ -27,7 +27,7 @@ EXP_META_PATH = BASE_PATH + '/tmp/meta'
 TMP_PATH = '/tmp'
 
 # file path variables
-BEACON_DETECTOR     = BASE_PATH + '/bin/armhf/tensorflow/lite/c/image_classifier
+BEACON_DETECTOR     = BASE_PATH + '/bin/armhf/tensorflow/lite/c/beacon_detector'
 BEACON_DEMODULATOR  = BASE_PATH + '/exec/beacon_demodulator'
 WF_RENDER           = BASE_PATH + '/exec/renderfall'
 GLOBAL_CONFIG       = BASE_PATH + '/config/global.ini'
@@ -62,11 +62,16 @@ WF_BINS                             = global_config.getint('wf_config'  , 'wf_bi
 MODEL_FILE                          = global_config.get('model_config', 'model_file')
 MODEL_META                          = global_config.get('model_config', 'model_meta')
 MODEL_THRESHOLD                     = global_config.getfloat('model_config', 'model_threshold')
+MODEL_TRAIN_X                       = global_config.getint('model_config'  , 'model_train_x')
+MODEL_TRAIN_Y                       = global_config.getint('model_config'  , 'model_train_y')
 
 # test settings
 TEST_SAMPRATE                       = global_config.getint('test_config', 'test_samprate')
 TEST_CENTERFREQ                     = global_config.getfloat('test_config'   , 'test_centerfreq')
+TEST_DECIMATION_ML                  = global_config.getint('test_config', 'test_decimation_ml')
 TEST_DECIMATION                     = global_config.getint('test_config', 'test_decimation')
+
+
 TEST_FILES = sorted(glob.glob(TEST_PATH + '/*.cf32'))
 current_testfile_index = 0
 
@@ -137,7 +142,12 @@ def preprocess_samples(flowgraph_configuration, input_filename, override_output_
 def render_waterfall(input_filename):
     png_filename = input_filename.replace('.cf32', '.png') # intermediate file, will be deleted later
     output_filename = EXP_WF_PATH + '/' + input_filename.replace('.cf32', '.jpg').split('/')[-1]
-    
+
+    libload =   '{LIB_PATH}/libfftw3.so.3'.format(LIB_PATH=LIB_PATH)
+
+    # preload some libraries that are project specific
+    os.environ['LD_PRELOAD'] = libload
+
     command = '{} -n {} -v -f {} -l {} -w {} -o {} {} && pngtopnm -quiet {} | ppmtojpeg -quiet > {}'.format(   
                                                                                                     WF_RENDER,\
                                                                                                     WF_BINS,\
@@ -167,15 +177,78 @@ def render_waterfall(input_filename):
     return output_filename
 
 def run_inference(input_filename):
-    logger.info("Running inference on input file [{}], using model file [{}]".format(input_filename, MODEL_FILE))
-    return [-5384.0]
 
-def process_samples(input_filename, samprate, decimation, center_freq, flowgraph_configuration, prediction=None):
+    try:
+        cmd = '{} --input {} --model {} --xsize {} --ysize {}'.format(   BEACON_DETECTOR,\
+                                                                        input_filename,\
+                                                                        MODEL_FILE,\
+                                                                        MODEL_TRAIN_X,\
+                                                                        MODEL_TRAIN_Y)
 
-    logger.info("Processing file [{f}] using predictions: [{p}]".format(f=input_filename, p=prediction))
+        logger.info("Running beacon_detector to perform beacon detection in waterfall: ${}".format(cmd))
+
+        t1 = datetime.datetime.utcnow()
+        p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        (stdout, stderr) = p.communicate()
+        p_status = p.wait()
+        t2 = datetime.datetime.utcnow()
+
+        delta = round((t2 - t1).total_seconds(), 2)
+
+        # Log stderr, it's the output of the time command.
+        logger.info("Inference execution time: {}s".format(delta))
+
+        return_code = p.returncode 
+
+        # Get program return code.
+        if return_code == 0:
+            # Log results.
+            logger.info("Model prediction results: \n" + stdout.decode('utf-8'))
+            predictions = filter(None, stdout.decode('utf-8').split("\n"))
+            predictions_dict = {}
+            predictions_dict['filename'] = input_filename
+            predictions_dict['model'] = MODEL_FILE
+            predictions_dict['inference_time'] = delta
+            predictions_dict['raw_predictions'] = []
+            predictions_dict['eng_predictions'] = []
+            for p in predictions:
+                data = p.split(',')
+                bbox = {}
+                score = float(data[0])
+                ymin = float(data[1])
+                xmin = float(data[2])
+                ymax = float(data[3])
+                xmax = float(data[4])
+                bbox['score'] = score
+                bbox['bbox'] = {'ymin' : ymin, 'xmin' : xmin, 'ymax' : ymax, 'xmax' : xmax}
+                predictions_dict['raw_predictions'].append(bbox)
+
+                bbox_eng = {}
+                bbox_eng['score'] = score
+                bbox_eng['bbox'] = {'smin' : ymin*TEST_SAMPRATE, 'fmin' : ((xmin*WF_BINS)-(float(WF_BINS)/2))*(float(TEST_SAMPRATE)/WF_BINS), 'smax' : ymax*TEST_SAMPRATE, 'fmax' : ((xmax*WF_BINS)-(float(WF_BINS)/2))*(float(TEST_SAMPRATE)/WF_BINS)}
+                predictions_dict['eng_predictions'].append(bbox_eng)
+
+            logger.info("Model prediction results: \n" + str(predictions_dict))
+        
+        else: 
+            # Log error code if image classification program returned and error code.
+            message = "The image beacon_detector returned error code {E}. {M}".format(E=str(return_code), M=stderr.decode('utf-8').strip())
+            logger.error(message)
+            raise Exception(message)
+
+    except:
+        # Log the exception.
+        message = "An error was thrown while attempting to run the beacon_detector program."
+        logger.exception(message)
+        raise Exception(message)
+
+    return predictions_dict, [(pred['bbox']['fmin'] + pred['bbox']['fmax'])/2 for pred in predictions_dict['eng_predictions'] if pred['score'] > 0.25]
+
+def process_samples(input_filename, samprate, decimation, center_freq, flowgraph_configuration, frequency_offset=0.0):
+
+    logger.info("Processing file [{}] using frequency offset: [{}]".format(input_filename, frequency_offset))
     
     skip = 0
-    offset = 0.0 if prediction == None else prediction
 
     libload =   '{LIB_PATH}/libgnuradio-epirb-1.so.0.0.0\
                 :{LIB_PATH}/libboost_system.so.1.62.0\
@@ -186,12 +259,12 @@ def process_samples(input_filename, samprate, decimation, center_freq, flowgraph
     os.environ['LD_PRELOAD'] = libload
 
     t1 = datetime.datetime.utcnow()
-    command = [BURST_DETECTOR,\
+    command = [BEACON_DEMODULATOR,\
                 '--filename', input_filename,\
                 '--samprate', str(samprate),\
                 '--flowgraph-config', flowgraph_configuration,\
                 '--decimation', str(decimation),\
-                '--offset', str(offset),\
+                '--offset', str(frequency_offset),\
                 '--center-freq', str(center_freq),\
                 '--skip', str(skip)]
     logger.info("Running command: {}".format(command))
@@ -203,8 +276,15 @@ def process_samples(input_filename, samprate, decimation, center_freq, flowgraph
 
     delta = round((t2 - t1).total_seconds(), 2)
     nr_beacons = output.count('{\"beacon\":{\"freq_hz\"')
+    if nr_beacons > 0:
+        beacon_dict = json.loads(output.split("\n")[-2])
+    else:
+        beacon_dict = {}
 
+    logger.info("beacon_dict: {}".format(beacon_dict))
     logger.info("Finished processing file [{}] in {}s, decoded {} beacons".format(input_filename, delta, nr_beacons))
+
+    return beacon_dict
 
 def get_output(cmd):
     return subprocess.check_output(cmd).decode('utf-8').rstrip('\n')
@@ -239,7 +319,7 @@ def log_info():
 
     # preload some libraries that are project specific
     os.environ['LD_PRELOAD'] = libload
-    lib_versions = subprocess.check_output([BURST_DETECTOR, '--version'], env=os.environ).decode('utf-8')
+    lib_versions = subprocess.check_output([BEACON_DEMODULATOR, '--version'], env=os.environ).decode('utf-8')
 
     full_output = opkg_output_api + opkg_output_sdr + opkg_output_exp + lib_versions
     for line in full_output.split("\n"):
@@ -279,32 +359,53 @@ def run_sar_processor():
     # start a capturing loop with time limit, fixed list in case of TEST_MODE_ACTIVE
     if TEST_MODE_ACTIVE:
         for testfile in TEST_FILES:
-            filename_acquired_cs16      = acquire_samples(CAPTURE_CONFIG)
-            filename_preprocessed_cf32  = preprocess_samples(PREPROCESS_CONFIG, filename_acquired_cs16, override_output_filename=testfile)
+            try:
+                metafile = {}
+                filename_acquired_cs16      = acquire_samples(CAPTURE_CONFIG)
+                filename_preprocessed_cf32  = preprocess_samples(PREPROCESS_CONFIG, filename_acquired_cs16, override_output_filename=testfile)
+                metafile['filename_acquired_cs16'] = filename_acquired_cs16
+                metafile['filename_preprocessed_cf32'] = filename_preprocessed_cf32
+                metafile['beacons'] = []
 
-            if ML_ENABLED:
-                filename_waterfall_jpg  = render_waterfall(filename_preprocessed_cf32)
-                predictions             = run_inference(filename_waterfall_jpg)
-                for p in predictions:
-                    beacons     = process_samples(filename_preprocessed_cf32, TEST_SAMPRATE, TEST_DECIMATION, TEST_CENTERFREQ, PROCESS_CONFIG_ML, prediction=p)
+                if ML_ENABLED:
+                    filename_waterfall_jpg  = render_waterfall(filename_preprocessed_cf32)
+                    metafile['filename_waterfall_jpg'] = filename_waterfall_jpg
+                    predictions_dict, frequency_offsets             = run_inference(filename_waterfall_jpg)
+                    metafile['predictions_dict'] = predictions_dict
+                    metafile['frequency_offsets'] = frequency_offsets
                     
-            else:
-                beacons     = process_samples(filename_preprocessed_cf32, TEST_SAMPRATE, TEST_DECIMATION, TEST_CENTERFREQ, PROCESS_CONFIG, prediction=None)
+                    for f in frequency_offsets:
+                        beacons     = process_samples(filename_preprocessed_cf32, TEST_SAMPRATE, TEST_DECIMATION_ML, TEST_CENTERFREQ, PROCESS_CONFIG_ML, frequency_offset=f)
+                        if beacons != {}:
+                            metafile['beacons'].append(beacons)
+                        
+                else:
+                    beacons     = process_samples(filename_preprocessed_cf32, TEST_SAMPRATE, TEST_DECIMATION, TEST_CENTERFREQ, PROCESS_CONFIG, frequency_offset=None)
+                    metafile['beacons'].append(beacons)
+
+                with open('{}/{}'.format(EXP_META_PATH, testfile.split('/')[-1].replace('.cf32', '.json')), 'w') as fp:
+                    json.dump(metafile, fp)
+
+            except Exception as e:
+                logger.error("Exception occurred in acquisition loop: {}".format(e))
 
     else:
         while (datetime.datetime.utcnow() - START_TIME).seconds < RUNTIME:
-            filename_acquired_cs16      = acquire_samples(CAPTURE_CONFIG)
-            filename_preprocessed_cf32  = preprocess_samples(PREPROCESS_CONFIG, filename_acquired_cs16)
+            try:
+                filename_acquired_cs16      = acquire_samples(CAPTURE_CONFIG)
+                filename_preprocessed_cf32  = preprocess_samples(PREPROCESS_CONFIG, filename_acquired_cs16)
 
-            if ML_ENABLED:
-                filename_waterfall_jpg      = render_waterfall(testfile)
-                predictions                 = run_inference(filename_waterfall_jpg)
-                for p in predictions:
-                    beacons     = process_samples(filename_preprocessed_cf32, TEST_SAMPRATE, TEST_DECIMATION, TEST_CENTERFREQ, PROCESS_CONFIG_ML, prediction=p)
-            else:
-                beacons = process_samples(PROCESS_CONFIG, filename_preprocessed_cf32, prediction=None)
-            time.sleep(5)
-
+                if ML_ENABLED:
+                    filename_waterfall_jpg      = render_waterfall(testfile)
+                    predictions_dict, frequency_offsets = run_inference(filename_waterfall_jpg)
+                    for f in frequency_offsets:
+                        beacons     = process_samples(filename_preprocessed_cf32, TEST_SAMPRATE, TEST_DECIMATION_ML, TEST_CENTERFREQ, PROCESS_CONFIG_ML, frequency_offset=f)
+                else:
+                    beacons = process_samples(filename_preprocessed_cf32, TEST_SAMPRATE, TEST_DECIMATION, TEST_CENTERFREQ, PROCESS_CONFIG, frequency_offset=None)
+                time.sleep(5)
+            except Exception as e:
+                logger.error("Exception occurred in acquisition loop: {}".format(e))
+    
     # perform cleanup
     dump_artifacts_cleanup()
 

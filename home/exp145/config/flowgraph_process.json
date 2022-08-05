@@ -21,7 +21,7 @@
     },
     "rrc" : {
        "rrc_enabled" : true,
-       "rrc_decimation" : 2,
+       "rrc_decimation" : 12,
        "rrc_alpha" : 0.25,
        "rrc_taps" : 50
     },
