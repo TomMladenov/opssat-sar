@@ -179,7 +179,7 @@ def render_waterfall(input_filename):
 def run_inference(input_filename):
 
     try:
-        cmd = '{} --input {} --model {} --xsize {} --ysize {}'.format(   BEACON_DETECTOR,\
+        cmd = '{} --input {} --model {} --xsize {} --ysize {}'.format(  BEACON_DETECTOR,\
                                                                         input_filename,\
                                                                         MODEL_FILE,\
                                                                         MODEL_TRAIN_X,\
@@ -326,8 +326,8 @@ def log_info():
         logger.info(line)
 
     logger.info("Dump global configuration...")
-    for item in global_config.items():
-        logger.info(item)
+    for section in global_config.sections():
+        logger.info("{}:{}".format(section, dict(global_config[section])))
 
 
 def setup():
