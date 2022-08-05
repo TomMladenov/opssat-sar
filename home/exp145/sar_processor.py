@@ -148,7 +148,7 @@ def render_waterfall(input_filename):
     # preload some libraries that are project specific
     os.environ['LD_PRELOAD'] = libload
 
-    command = '{} -n {} -v -f {} -l {} -w {} -o {} {} && pngtopnm -quiet {} | ppmtojpeg -quiet > {}'.format(   
+    command = '{} -n {} -v -f {} -l {} -w {} -o {} {} && /home/exp145/exec/pngtopnm -quiet {} | /home/exp145/exec/ppmtojpeg -quiet > {}'.format(
                                                                                                     WF_RENDER,\
                                                                                                     WF_BINS,\
                                                                                                     WF_FORMAT,\
