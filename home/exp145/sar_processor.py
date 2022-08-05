@@ -242,7 +242,7 @@ def run_inference(input_filename):
         logger.exception(message)
         raise Exception(message)
 
-    return predictions_dict, [(pred['bbox']['fmin'] + pred['bbox']['fmax'])/2 for pred in predictions_dict['eng_predictions'] if pred['score'] > 0.25]
+    return predictions_dict, [(pred['bbox']['fmin'] + pred['bbox']['fmax'])/2 for pred in predictions_dict['eng_predictions'] if pred['score'] >= MODEL_THRESHOLD]
 
 def process_samples(input_filename, samprate, decimation, center_freq, flowgraph_configuration, frequency_offset=0.0):
 
@@ -281,7 +281,7 @@ def process_samples(input_filename, samprate, decimation, center_freq, flowgraph
     else:
         beacon_dict = {}
 
-    logger.info("beacon_dict: {}".format(beacon_dict))
+    #logger.info("beacon_dict: {}".format(beacon_dict))
     logger.info("Finished processing file [{}] in {}s, decoded {} beacons".format(input_filename, delta, nr_beacons))
 
     return beacon_dict
@@ -380,7 +380,7 @@ def run_sar_processor():
                             metafile['beacons'].append(beacons)
                         
                 else:
-                    beacons     = process_samples(filename_preprocessed_cf32, TEST_SAMPRATE, TEST_DECIMATION, TEST_CENTERFREQ, PROCESS_CONFIG, frequency_offset=None)
+                    beacons     = process_samples(filename_preprocessed_cf32, TEST_SAMPRATE, TEST_DECIMATION, TEST_CENTERFREQ, PROCESS_CONFIG, frequency_offset=0.0)
                     metafile['beacons'].append(beacons)
 
                 with open('{}/{}'.format(EXP_META_PATH, testfile.split('/')[-1].replace('.cf32', '.json')), 'w') as fp:
@@ -401,7 +401,7 @@ def run_sar_processor():
                     for f in frequency_offsets:
                         beacons     = process_samples(filename_preprocessed_cf32, TEST_SAMPRATE, TEST_DECIMATION_ML, TEST_CENTERFREQ, PROCESS_CONFIG_ML, frequency_offset=f)
                 else:
-                    beacons = process_samples(filename_preprocessed_cf32, TEST_SAMPRATE, TEST_DECIMATION, TEST_CENTERFREQ, PROCESS_CONFIG, frequency_offset=None)
+                    beacons = process_samples(filename_preprocessed_cf32, TEST_SAMPRATE, TEST_DECIMATION, TEST_CENTERFREQ, PROCESS_CONFIG, frequency_offset=0.0)
                 time.sleep(5)
             except Exception as e:
                 logger.error("Exception occurred in acquisition loop: {}".format(e))
